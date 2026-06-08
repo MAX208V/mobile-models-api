@@ -1,14 +1,12 @@
 // MobileModels Device Database API - Cloudflare Worker
 // Data Source: github.com/KHwang9883/MobileModels
 
-const GITHUB_OWNER = "KHwang9883";
-const GITHUB_REPO = "MobileModels";
-const GITHUB_BRANCH = "master";
+const GH_OWNER = "KHwang9883";
+const GH_REPO = "MobileModels";
+const GH_BRANCH = "master";
+const GH_API = "https://api.github.com/repos/" + GH_OWNER + "/" + GH_REPO + "/contents/brands";
 
-// Uses GitHub API to fetch markdown files
-const GH_API = "https://api.github.com/repos/" + GITHUB_OWNER + "/" + GITHUB_REPO + "/contents/brands";
-
-const BRAND_FILES = [
+var BRANDS = [
   ["360shouji","360shouji.md"],["apple","apple_all.md"],["apple_cn","apple_cn.md"],
   ["apple_en","apple_all_en.md"],["asus_cn","asus_cn.md"],["asus_en","asus_en.md"],
   ["blackshark","blackshark.md"],["coolpad","coolpad.md"],["google","google.md"],
@@ -27,157 +25,169 @@ const BRAND_FILES = [
   ["xiaomi-wear","xiaomi-wear.md"],["zhixuan","zhixuan.md"],["zte_cn","zte_cn.md"]
 ];
 
-var BRAND_NAMES = {
-  "360shouji":"360","apple":"Apple","apple_cn":"Apple (CN)","apple_en":"Apple (EN)",
-  "asus_cn":"ASUS (CN)","asus_en":"ASUS","blackshark":"Black Shark",
-  "coolpad":"Coolpad","google":"Google","honor_cn":"Honor (CN)","honor_global_en":"Honor",
-  "huawei_cn":"Huawei (CN)","huawei_global_en":"Huawei","lenovo_cn":"Lenovo (CN)",
-  "letv":"LeTV","meizu":"Meizu (CN)","meizu_en":"Meizu","mitv_cn":"Mi TV (CN)",
-  "mitv_global_en":"Mi TV","motorola_cn":"Motorola (CN)","nokia_cn":"Nokia (CN)",
-  "nothing":"Nothing","nubia":"Nubia","oneplus":"OnePlus (CN)","oneplus_en":"OnePlus",
-  "oppo_cn":"OPPO (CN)","oppo_global_en":"OPPO","realme_cn":"realme (CN)",
-  "realme_global_en":"realme","samsung_cn":"Samsung (CN)","samsung_global_en":"Samsung",
-  "smartisan":"Smartisan","sony":"Sony","sony_cn":"Sony (CN)","vivo_cn":"vivo (CN)",
-  "vivo_global_en":"vivo","xiaomi":"Xiaomi","xiaomi_cn":"Xiaomi (CN)",
-  "xiaomi_en":"Xiaomi (EN)","xiaomi-wear":"Xiaomi Wear","zhixuan":"Zhixuan","zte_cn":"ZTE (CN)"
+var NAMES = {
+  "360shouji":"360","apple":"Apple","apple_cn":"Apple CN","apple_en":"Apple EN",
+  "asus_cn":"ASUS CN","asus_en":"ASUS","blackshark":"Black Shark",
+  "coolpad":"Coolpad","google":"Google","honor_cn":"Honor CN","honor_global_en":"Honor",
+  "huawei_cn":"Huawei CN","huawei_global_en":"Huawei","lenovo_cn":"Lenovo CN",
+  "letv":"LeTV","meizu":"Meizu CN","meizu_en":"Meizu","mitv_cn":"Mi TV CN",
+  "mitv_global_en":"Mi TV","motorola_cn":"Motorola CN","nokia_cn":"Nokia CN",
+  "nothing":"Nothing","nubia":"Nubia","oneplus":"OnePlus CN","oneplus_en":"OnePlus",
+  "oppo_cn":"OPPO CN","oppo_global_en":"OPPO","realme_cn":"realme CN",
+  "realme_global_en":"realme","samsung_cn":"Samsung CN","samsung_global_en":"Samsung",
+  "smartisan":"Smartisan","sony":"Sony","sony_cn":"Sony CN","vivo_cn":"vivo CN",
+  "vivo_global_en":"vivo","xiaomi":"Xiaomi","xiaomi_cn":"Xiaomi CN",
+  "xiaomi_en":"Xiaomi EN","xiaomi-wear":"Xiaomi Wear","zhixuan":"Zhixuan","zte_cn":"ZTE CN"
 };
 
-// Regex patterns for markdown parsing
-var R_SERIES = new RegExp("^##\\s+(.+)");
-var R_DEVICE_CODENAME = new RegExp("^\\*\\*(.+?)\\s*\\(`([^`]+)`\\)\\s*:\\*\\*");
-var R_DEVICE_SIMPLE = new RegExp("^\\*\\*(.+?)\\s*:\\*\\*");
-var R_MODEL = new RegExp("^`([^`]+)`\\s*:\\s*(.+)");
+// Regex for parsing markdown
+var R_SERIES = /^##\s+(.+)/;
+// Match: **[`COD`] Device (`codename`):**  (Apple/Xiaomi style with bracket codename)
+var R_DEV_BRACKET = /^\*\*\[`([^`]+)`\]\s+(.+?)\s*\(`([^`]+)`\)\s*:\*\*/;
+// Match: **Device (`codename`):**  (Samsung/Huawei style)
+var R_DEV_PAREN = /^\*\*(.+?)\s*\(`([^`]+)`\)\s*:\*\*/;
+// Match: **Device:**
+var R_DEV_SIMPLE = /^\*\*(.+?)\s*:\*\*/;
+// Match: `MODEL`: Description
+var R_MODEL = /^`([^`]+)`\s*:\s*(.+)/;
 
-function parseMD(text, brand) {
+function parseMD(text, brandId) {
   var lines = text.split('\n');
-  var devices = [];
-  var series = "", device = "", codename = "";
+  var out = [], series = "", device = "", codename = "";
   for (var i = 0; i < lines.length; i++) {
-    var l = lines[i].trim();
-    if (!l) continue;
-    var m = l.match(R_SERIES);
+    var line = lines[i].trim();
+    if (!line) continue;
+
+    // Series header: ## Name
+    var m = line.match(R_SERIES);
     if (m) { series = m[1].trim(); continue; }
-    m = l.match(R_DEVICE_CODENAME);
+
+    // **[`COD`] Device (`codename`):**  (Apple/Xiaomi)
+    m = line.match(R_DEV_BRACKET);
+    if (m) { device = m[2].trim(); codename = m[3].trim(); continue; }
+
+    // **Device (`codename`):**  (Samsung/Huawei)
+    m = line.match(R_DEV_PAREN);
     if (m) { device = m[1].trim(); codename = m[2].trim(); continue; }
-    m = l.match(R_DEVICE_SIMPLE);
-    if (m && l.indexOf('`') === -1) { device = m[1].trim(); codename = ""; continue; }
-    m = l.match(R_MODEL);
+
+    // **Device:**
+    m = line.match(R_DEV_SIMPLE);
+    if (m && line.indexOf('`') === -1) { device = m[1].trim(); codename = ""; continue; }
+
+    // `MODEL`: Description
+    m = line.match(R_MODEL);
     if (m && device) {
-      devices.push({ brand: brand, series: series, device: device, codename: codename, model: m[1].trim(), desc: m[2].trim() });
+      out.push({ b: brandId, s: series, d: device, c: codename, m: m[1].trim(), t: m[2].trim() });
     }
   }
-  return devices;
+  return out;
 }
 
-var cache = null;
-var cacheTime = 0;
+var cache = null, cacheTime = 0;
 
 async function getDb() {
   if (!cache || Date.now() - cacheTime > 3600000) {
-    var all = [];
-    var ps = [];
-    for (var j = 0; j < BRAND_FILES.length; j++) {
-      var id = BRAND_FILES[j][0];
-      var file = BRAND_FILES[j][1];
-      var url = GH_API + "/" + file + "?ref=" + GITHUB_BRANCH;
-      ps.push(
+    var all = [], promises = [];
+    for (var j = 0; j < BRANDS.length; j++) {
+      var id = BRANDS[j][0], file = BRANDS[j][1];
+      var url = GH_API + "/" + file + "?ref=" + GH_BRANCH;
+      promises.push(
         fetch(url, { headers: { "Accept": "application/vnd.github.v3.raw", "User-Agent": "MobileModels-CF/1.0" } })
-          .then(function(r) { if (!r.ok) return null; return r.text(); })
-          .then(function(text) { if (!text) return; var parsed = parseMD(text, id); for (var k = 0; k < parsed.length; k++) all.push(parsed[k]); })
-          .catch(function(e) { console.log("Fetch error: " + id + " " + e.message); })
+          .then(function(r) { return r.ok ? r.text() : null; })
+          .then(function(text) {
+            if (!text) return;
+            var parsed = parseMD(text, id);
+            for (var k = 0; k < parsed.length; k++) all.push(parsed[k]);
+          })
+          .catch(function() {})
       );
     }
-    await Promise.all(ps);
+    await Promise.all(promises);
     cache = all;
     cacheTime = Date.now();
   }
   return cache;
 }
 
-function json(data, s) {
+function json(data, status) {
   return new Response(JSON.stringify(data), {
-    status: s || 200,
-    headers: { "Content-Type": "application/json; charset=utf-8", "Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=300" }
+    status: status || 200,
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Access-Control-Allow-Origin": "*"
+    }
   });
 }
 
-var PAGE = "<html><head><meta charset='utf-8'><title>MobileModels API</title>" +
-  "<style>body{font-family:sans-serif;background:#0f172a;color:#e2e8f0;max-width:800px;margin:0 auto;padding:2rem}" +
-  "h1{background:linear-gradient(135deg,#60a5fa,#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent}" +
-  ".e{background:#1e293b;padding:1rem;border-radius:8px;margin:0.5rem 0;border:1px solid #334155}" +
-  ".m{display:inline-block;background:#22c55e;color:#000;padding:2px 8px;border-radius:4px;margin-right:8px}" +
-  "pre{background:#1e293b;padding:1rem;border-radius:8px;border:1px solid #334155}" +
-  "a{color:#60a5fa}</style></head><body>" +
-  "<h1>MobileModels API</h1>" +
-  "<p>github.com/KHwang9883/MobileModels</p>" +
-  "<div class='e'><span class='m'>GET</span> /api/brands</div>" +
-  "<div class='e'><span class='m'>GET</span> /api/brands/:id</div>" +
-  "<div class='e'><span class='m'>GET</span> /api/search?q=x</div>" +
-  "<div class='e'><span class='m'>GET</span> /api/model/x</div>" +
-  "<div class='e'><span class='m'>GET</span> /api/stats</div></body></html>";
+var HOME = "<h1>MobileModels API</h1><p>Data: github.com/KHwang9883/MobileModels</p><p>Endpoints: /api/brands /api/brands/:id /api/search?q= /api/model/ /api/stats</p>";
 
 export default {
   async fetch(request) {
     var url = new URL(request.url);
     var path = url.pathname;
-    
+
     if (path === "/") {
-      return new Response(PAGE, { headers: { "Content-Type": "text/html; charset=utf-8" } });
+      return new Response(HOME, { headers: { "Content-Type": "text/html; charset=utf-8" } });
     }
-    
+
     try {
       var db = await getDb();
-      
+
+      // /api/brands
       if (path === "/api/brands") {
-        var brands = {};
-        for (var j = 0; j < BRAND_FILES.length; j++) {
-          var id = BRAND_FILES[j][0];
-          var count = 0;
-          for (var k = 0; k < db.length; k++) { if (db[k].brand === id) count++; }
-          brands[id] = { name: BRAND_NAMES[id] || id, count: count };
+        var result = {};
+        for (var j = 0; j < BRANDS.length; j++) {
+          var id = BRANDS[j][0], count = 0;
+          for (var k = 0; k < db.length; k++) { if (db[k].b === id) count++; }
+          result[id] = { name: NAMES[id] || id, count: count };
         }
-        return json({ success: true, total: Object.keys(brands).length, brands: brands });
+        return json({ success: true, brands: result });
       }
-      
-      var bm = path.match(/^\/api\/brands\/([a-zA-Z0-9_-]+)$/);
-      if (bm) {
-        var bid = bm[1];
-        var exists = false;
-        for (var j = 0; j < BRAND_FILES.length; j++) { if (BRAND_FILES[j][0] === bid) { exists = true; break; } }
-        if (!exists) return json({ error: "not found" }, 404);
-        var resultDevices = [];
-        for (var k = 0; k < db.length; k++) { if (db[k].brand === bid) resultDevices.push(db[k]); }
-        return json({ success: true, brand: bid, total: resultDevices.length, devices: resultDevices });
+
+      // /api/brands/:id
+      var match = path.match(/^\/api\/brands\/([a-zA-Z0-9_-]+)$/);
+      if (match) {
+        var bid = match[1];
+        var arr = [];
+        for (var k = 0; k < db.length; k++) {
+          if (db[k].b === bid) arr.push(db[k]);
+        }
+        return json({ success: true, brand: bid, name: NAMES[bid] || bid, total: arr.length, devices: arr });
       }
-      
+
+      // /api/search?q=xxx&brand=xxx
       if (path === "/api/search") {
         var q = (url.searchParams.get("q") || "").toLowerCase();
         var b = url.searchParams.get("brand") || "";
         var results = [];
         for (var k = 0; k < db.length; k++) {
           var d = db[k];
-          if (b && d.brand !== b) continue;
-          if (q && d.device.toLowerCase().indexOf(q) === -1 && d.model.toLowerCase().indexOf(q) === -1 && d.codename.toLowerCase().indexOf(q) === -1 && d.desc.toLowerCase().indexOf(q) === -1) continue;
+          if (b && d.b !== b) continue;
+          if (q && d.d.toLowerCase().indexOf(q) === -1 && d.m.toLowerCase().indexOf(q) === -1 && d.c.toLowerCase().indexOf(q) === -1 && d.t.toLowerCase().indexOf(q) === -1 && d.s.toLowerCase().indexOf(q) === -1) continue;
           results.push(d);
         }
         return json({ success: true, total: results.length, results: results.slice(0, 200) });
       }
-      
+
+      // /api/model/:modelNumber
       var mm = path.match(/^\/api\/model\/([A-Za-z0-9\-\/]+)$/);
       if (mm) {
         var mn = mm[1].toUpperCase();
         var results = [];
-        for (var k = 0; k < db.length; k++) { if (db[k].model.indexOf(mn) !== -1) results.push(db[k]); }
-        return json({ success: true, model: mn, total: results.length, results: results });
+        for (var k = 0; k < db.length; k++) {
+          if (db[k].m.indexOf(mn) !== -1) results.push(db[k]);
+        }
+        return json({ success: true, modelNumber: mn, total: results.length, results: results });
       }
-      
+
+      // /api/stats
       if (path === "/api/stats") {
-        var s = {};
-        for (var k = 0; k < db.length; k++) s[db[k].series] = true;
-        var sc = 0; for (var x in s) sc++;
-        return json({ success: true, stats: { devices: db.length, brands: BRAND_FILES.length, series: sc } });
+        var seriesSet = {};
+        for (var k = 0; k < db.length; k++) seriesSet[db[k].s] = 1;
+        var sc = 0; for (var x in seriesSet) sc++;
+        return json({ success: true, stats: { totalDevices: db.length, totalBrands: BRANDS.length, totalSeries: sc } });
       }
-      
+
       return json({ error: "not found" }, 404);
     } catch(e) {
       return json({ error: e.message }, 500);
