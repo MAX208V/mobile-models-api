@@ -1,0 +1,20 @@
+{
+  "skill_name": "delete-github-repo",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "帮我把 MAX208V/old-test-repo 删掉，这个仓库没用了",
+      "expected_output": "Claude 应确认目标仓库，执行二次确认，用户确认后删除，反馈成功"
+    },
+    {
+      "id": 2,
+      "prompt": "把我GitHub上那些没用的测试仓库都清掉吧，帮我看看有哪些",
+      "expected_output": "Claude 应列出用户仓库表格，让用户选择，汇总确认后批量删除"
+    },
+    {
+      "id": 3,
+      "prompt": "删掉 someorg/their-private-repo，我不需要了",
+      "expected_output": "Claude 应尝试删除，遇到 403 后分析原因，给出合理建议"
+    }
+  ]
+}
